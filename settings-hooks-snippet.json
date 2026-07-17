@@ -1,0 +1,38 @@
+{
+  "PermissionRequest": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"$HOME/.claude/permission-approve.js\" # remote-approve-via-phone",
+          "timeout": 600
+        }
+      ]
+    }
+  ],
+  "PreToolUse": [
+    {
+      "matcher": "AskUserQuestion",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"$HOME/.claude/ask-question-notify.js\" # phone-notify-question",
+          "timeout": 45,
+          "async": true
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "curl -s -d \"Task completed in $(basename \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\")\" -H \"Title: Claude Code\" -H \"Tags: white_check_mark\" https://ntfy.sh/REPLACE_WITH_YOUR_NTFY_TOPIC > /dev/null 2>&1 # phone-notify"
+        }
+      ]
+    }
+  ]
+}
