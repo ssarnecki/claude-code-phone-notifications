@@ -68,39 +68,68 @@ function matchesToolInput(toolInput, entryInput) {
     return looseDeepEqual(entryInput, toolInput);
 }
 
+// Subagents (spawned via the Task tool) log their own tool_use/tool_result
+// entries to a SEPARATE file — <session-dir>/<session-id>/subagents/*.jsonl —
+// not the main session transcript the hook is handed. A tool call made from
+// inside a subagent is therefore invisible to a lookup that only checks
+// transcriptPath, no matter how big the read window is. Re-derived on every
+// call (not cached) since new subagent files can appear mid-session.
+function subagentTranscriptPaths(transcriptPath) {
+    try {
+        const dir = path.dirname(transcriptPath);
+        const base = path.basename(transcriptPath, '.jsonl');
+        const subDir = path.join(dir, base, 'subagents');
+        return fs.readdirSync(subDir)
+            .filter((f) => f.endsWith('.jsonl'))
+            .map((f) => path.join(subDir, f));
+    } catch (_) {
+        return [];
+    }
+}
+
+function allTranscriptPaths(transcriptPath) {
+    return [transcriptPath, ...subagentTranscriptPaths(transcriptPath)];
+}
+
 // Find the tool_use id Claude Code already logged for this pending call, by
-// scanning the transcript (newest-first) for the most recent matching entry.
+// scanning the main transcript plus any subagent transcripts (newest-first
+// within each) for the most recent matching entry.
 function findToolUseId(transcriptPath, toolName, toolInput) {
-    const lines = readAll(transcriptPath).split('\n');
-    for (let i = lines.length - 1; i >= 0; i--) {
-        if (!lines[i]) continue;
-        let entry;
-        try { entry = JSON.parse(lines[i]); } catch (_) { continue; }
-        if (entry.type !== 'assistant') continue;
-        const content = entry.message && entry.message.content;
-        if (!Array.isArray(content)) continue;
-        for (const item of content) {
-            if (item.type === 'tool_use' && item.name === toolName && matchesToolInput(toolInput, item.input)) {
-                return item.id;
+    for (const p of allTranscriptPaths(transcriptPath)) {
+        const lines = readAll(p).split('\n');
+        for (let i = lines.length - 1; i >= 0; i--) {
+            if (!lines[i]) continue;
+            let entry;
+            try { entry = JSON.parse(lines[i]); } catch (_) { continue; }
+            if (entry.type !== 'assistant') continue;
+            const content = entry.message && entry.message.content;
+            if (!Array.isArray(content)) continue;
+            for (const item of content) {
+                if (item.type === 'tool_use' && item.name === toolName && matchesToolInput(toolInput, item.input)) {
+                    return item.id;
+                }
             }
         }
     }
     return null;
 }
 
-// True once a tool_result for this id shows up — meaning the call already ran,
-// i.e. it was resolved at the computer before our grace period elapsed.
+// True once a tool_result for this id shows up in the main transcript or any
+// subagent transcript — meaning the call already ran, i.e. it was resolved at
+// the computer before our grace period elapsed.
 function alreadyResolved(transcriptPath, toolUseId) {
-    const lines = readAll(transcriptPath).split('\n');
-    for (let i = lines.length - 1; i >= 0; i--) {
-        if (!lines[i]) continue;
-        let entry;
-        try { entry = JSON.parse(lines[i]); } catch (_) { continue; }
-        if (entry.type !== 'user') continue;
-        const content = entry.message && entry.message.content;
-        if (!Array.isArray(content)) continue;
-        for (const item of content) {
-            if (item.type === 'tool_result' && item.tool_use_id === toolUseId) return true;
+    for (const p of allTranscriptPaths(transcriptPath)) {
+        const lines = readAll(p).split('\n');
+        for (let i = lines.length - 1; i >= 0; i--) {
+            if (!lines[i]) continue;
+            let entry;
+            try { entry = JSON.parse(lines[i]); } catch (_) { continue; }
+            if (entry.type !== 'user') continue;
+            const content = entry.message && entry.message.content;
+            if (!Array.isArray(content)) continue;
+            for (const item of content) {
+                if (item.type === 'tool_result' && item.tool_use_id === toolUseId) return true;
+            }
         }
     }
     return false;

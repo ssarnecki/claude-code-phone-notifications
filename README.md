@@ -137,7 +137,13 @@ waits for a tap before giving up and falling back to the terminal prompt.
   and skip the phone push entirely if so. Matching is intentionally loose about
   extra/missing keys, since Claude Code fills in tool-schema defaults (like
   `AskUserQuestion`'s `multiSelect: false`) before handing input to hooks, but
-  the transcript keeps whatever the model actually emitted.
+  the transcript keeps whatever the model actually emitted. The whole file is
+  read each check rather than a fixed-size tail — under heavy parallel tool
+  activity a tail window can get outrun by how fast the file grows.
+- Subagent tool calls (spawned via the Task tool) get logged to a *separate*
+  file — `<session-dir>/<session-id>/subagents/*.jsonl` — not the main
+  transcript the hook receives. Both lookups also scan that folder, or a
+  subagent-originated approval would never register as already resolved.
 - For permissions, once resolved, it outputs a JSON decision
   (`{"hookSpecificOutput": {...}}`) that Claude Code reads to allow/deny the call.
   The question notifier never outputs a decision — it's a pure side effect.
